@@ -242,4 +242,5 @@ GitHub Copilot supports both Claude-style **skills in individual folders** (wi
 
 - [dfinke/awesome-copilot-chatmodes](https://github.com/dfinke/awesome-copilot-chatmodes)
 - [sachin-aag/Writing-system-prompt](https://github.com/sachin-aag/Writing-system-prompt)
-- 
+- [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills)
+- [github/awesome-copilot](https://github.com/github/awesome-copilot)
