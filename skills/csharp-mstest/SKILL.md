@@ -32,11 +32,11 @@ Test file naming: `{ClassName}Tests.cs` (one test class per class under test)
 
 The test class namespace must mirror the class-under-test namespace, prefixed with `{SolutionName}.Test.Unit`. This prevents namespace drift and keeps test files discoverable.
 
-| Class Under Test Namespace | Test Class Namespace |
-|---|---|
-| `Roadbed.Sdk.NationalWeatherService` | `Roadbed.Test.Unit.Sdk.NationalWeatherService` |
-| `Roadbed.Net` | `Roadbed.Test.Unit.Net` |
-| `MyApp.Services.Billing` | `MyApp.Test.Unit.Services.Billing` |
+| Class Under Test Namespace | Test Class Namespace               |
+| -------------------------- | ---------------------------------- |
+| `Solution.Sdk.Saas`        | `Solution.Test.Unit.Sdk.Saas`      |
+| `Solution.Net`             | `Solution.Test.Unit.Net`           |
+| `MyApp.Services.Billing`   | `MyApp.Test.Unit.Services.Billing` |
 
 ---
 
@@ -231,16 +231,16 @@ Assert.AreEqual(
 
 Do NOT use `Assert.IsTrue()` or `Assert.IsFalse()` when a specialized assert exists. Using them triggers MSTEST0037 warnings.
 
-| Condition | Correct Assert | Wrong Assert |
-|-----------|---------------|--------------|
-| String contains substring | `StringAssert.Contains(actual, substring, msg)` | `Assert.IsTrue(actual.Contains(substring), msg)` |
-| String starts with | `StringAssert.StartsWith(actual, prefix, msg)` | `Assert.IsTrue(actual.StartsWith(prefix), msg)` |
-| String ends with | `StringAssert.EndsWith(actual, suffix, msg)` | `Assert.IsTrue(actual.EndsWith(suffix), msg)` |
-| String matches regex | `StringAssert.Matches(actual, pattern, msg)` | `Assert.IsTrue(Regex.IsMatch(actual, pattern), msg)` |
-| Collection contains item | `CollectionAssert.Contains(collection, item, msg)` | `Assert.IsTrue(collection.Contains(item), msg)` |
-| Collection count | `Assert.HasCount(collection, expectedCount, msg)` | `Assert.AreEqual(expectedCount, collection.Count, msg)` |
-| Collection subset | `CollectionAssert.IsSubsetOf(subset, superset, msg)` | N/A |
-| LINQ Any/All | `Assert.IsTrue(col.Any(x => cond), msg)` | (acceptable — no specialized alternative) |
+| Condition                 | Correct Assert                                       | Wrong Assert                                            |
+| ------------------------- | ---------------------------------------------------- | ------------------------------------------------------- |
+| String contains substring | `StringAssert.Contains(actual, substring, msg)`      | `Assert.IsTrue(actual.Contains(substring), msg)`        |
+| String starts with        | `StringAssert.StartsWith(actual, prefix, msg)`       | `Assert.IsTrue(actual.StartsWith(prefix), msg)`         |
+| String ends with          | `StringAssert.EndsWith(actual, suffix, msg)`         | `Assert.IsTrue(actual.EndsWith(suffix), msg)`           |
+| String matches regex      | `StringAssert.Matches(actual, pattern, msg)`         | `Assert.IsTrue(Regex.IsMatch(actual, pattern), msg)`    |
+| Collection contains item  | `CollectionAssert.Contains(collection, item, msg)`   | `Assert.IsTrue(collection.Contains(item), msg)`         |
+| Collection count          | `Assert.HasCount(collection, expectedCount, msg)`    | `Assert.AreEqual(expectedCount, collection.Count, msg)` |
+| Collection subset         | `CollectionAssert.IsSubsetOf(subset, superset, msg)` | N/A                                                     |
+| LINQ Any/All              | `Assert.IsTrue(col.Any(x => cond), msg)`             | (acceptable — no specialized alternative)               |
 
 ### Assert.IsTrue for LINQ Is Acceptable
 

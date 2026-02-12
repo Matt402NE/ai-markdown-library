@@ -1,5 +1,13 @@
 # Copilot Instructions for Repository
 
+## Language Policy
+
+All instructions and prompts in this repository must be written in English. This applies to:
+
+- All rule and instruction files in `.github/instructions/`
+- All prompt files in `.github/prompts/`
+- All documentation and code comments intended for contributors
+
 ## Tech Stack
 - .NET 10+ class libraries, Blazor Server, WPF, console apps, MSTest
 - Python 3.11+ (if present)

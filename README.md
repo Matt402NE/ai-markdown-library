@@ -57,6 +57,13 @@ For a workflow like **“diagnose and fix failing GitHub Actions workflows in a
 2. **Create modular skills** for repeatable, task-specific logic.
 3. **Use custom agents** only when you need a named, orchestrated persona to handle complex workflows or multiple skills together.
 
+## Choosing Between Instruction and Prompt Files
+
+- Instruction Files: Best for repository-wide guidance and long-term standards across multiple contributors and projects.
+- Prompt Files: Best for local, session-based guidance or for specific functionality in a single file or segment.
+- Combine Both: For maximum results, use instruction files for your overall project and supplement with prompt files in areas that need extra clarity or specificity.
+
+
 ## Online Resources
 
 * [bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD)
