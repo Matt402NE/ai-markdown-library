@@ -1,0 +1,475 @@
+# ILogger Logging Level Guidance
+
+Best practices for developers using `Microsoft.Extensions.Logging`. Optimized for production observability and local debugging. Audience: developers who search application logs in systems like Splunk.
+
+---
+
+## 1. Logging Philosophy
+
+### 1.1 Purpose
+
+- Logs exist primarily for **developers**.
+- Logs support **local debugging**, **production observability**, and **post-incident analysis**.
+- Logs are treated as **immutable audit trails** — append-only records that are never modified or deleted after writing. This refers to their diagnostic role in debugging and investigation, not to formal regulatory audit logging which may require additional guarantees around completeness, retention, and tamper-proofing.
+
+### 1.2 Environment Posture
+
+|Environment|Default Minimum Level|Intent|
+|---|---|---|
+|Production|Information|Informative enough for reconstruction, not noisy|
+|Local / Development|Debug|Chatty, developer-focused|
+|Deep Troubleshooting|Trace|Enabled temporarily in any environment|
+
+### 1.3 Exception Philosophy
+
+- Exceptions are the **most important log entries**.
+- **Unhandled exceptions** → Error, or Critical if they affect system stability or data integrity.
+- **Handled exceptions** → Debug or Trace.
+- **Business rule failures** → Debug (expected behavior, not exceptional).
+- **Transient failures with exhausted retries** → Warning (the only case where a handled failure escalates above Debug).
+
+### 1.4 Logs vs. Metrics
+
+Logs capture _context_ about individual events. Metrics capture _trends_ across many events. If the primary value of a data point is aggregation over time — request counts, latency percentiles, error rates — emit it as a metric rather than a log entry. Logging high-frequency data that exists only to be counted or averaged creates volume without value.
+
+---
+
+## 2. Logging Levels
+
+Each log level indicates the severity and intended visibility of an event. Use the lowest level consistent with the intent.
+
+### Trace (LogLevel 0) — Finest-Grained Diagnostic Data
+
+Data that is only useful when stepping through logic at the lowest level. Trace logs are high-volume and should never appear in production unless temporarily enabled for targeted troubleshooting.
+
+Use for:
+
+- Individual iterations inside loops
+- Repository-level operations (queries, cache lookups)
+- SQL/ORM command details
+- Low-level state transitions
+
+### Debug (LogLevel 1) — Development Troubleshooting
+
+Diagnostics that help a developer understand _why_ code followed a particular path. Debug logs are the default floor during local development.
+
+Use for:
+
+- Method entry/exit in non-trivial flows
+- Branching decisions and conditional logic
+- Cache hits/misses
+- Handled exceptions that are gracefully recovered
+- Validation outcomes (pass or fail)
+- Detailed service-level operations
+- Per-batch summaries when processing collections
+
+### Information (LogLevel 2) — Normal Application Flow Summary
+
+High-level milestones that tell the story of what the application _did_. These are the logs a developer reads first when investigating production behavior.
+
+Use for:
+
+- Workflow or operation start and completion
+- Key business events and state changes
+- Orchestrator-level summaries
+- Aggregate results of batch operations (e.g., "Processed 42 of 50 items successfully")
+
+### Warning (LogLevel 3) — Unexpected but Recoverable
+
+Something happened that was not part of the normal path, but the system continued operating. Warnings signal conditions that may need attention before they become errors.
+
+Use for:
+
+- Transient failures where retries are **exhausted** but the system degrades gracefully
+- External service latency exceeding acceptable thresholds
+- Partial failures where the system continues with reduced functionality
+- Configuration values falling back to defaults unexpectedly
+
+Do **not** use for:
+
+- Business rule violations (use Debug)
+- Validation failures (use Debug)
+- Handled exceptions that are part of normal recovery (use Debug)
+
+### Error (LogLevel 4) — Current Operation Failed
+
+The current operation cannot complete. The system is still running, but something broke for this request or workflow.
+
+Use for:
+
+- Exceptions that prevent the operation from completing
+- Failed external calls after all retry attempts
+- Data inconsistencies that break the current workflow
+
+Always include:
+
+- The full exception via the `Exception` overload
+- Contextual identifiers (entity ID, correlation ID, etc.)
+
+### Critical (LogLevel 5) — Application or System Severely Impacted
+
+The application itself is in jeopardy. Critical logs should be extremely rare and almost always trigger an alert.
+
+Use for:
+
+- Data loss or corruption
+- Security breaches
+- Application startup failures
+- Unrecoverable system-wide outages
+
+---
+
+## 3. Layer-Specific Guidance
+
+The Entity → Service → Repository pattern with an Orchestrator coordinating Services produces a natural logging hierarchy. Higher layers summarize; lower layers detail.
+
+### Repository Layer
+
+**Primary levels:** Trace, Debug **Rarely if ever:** Information or above
+
+Repositories sit at the bottom of the stack. Their logs capture data-access mechanics, not business meaning.
+
+- Query execution and parameters → Trace
+- Cache operations → Debug
+- Individual retry attempts → Trace
+- Retry exhaustion with recovery → Debug
+- Handled data-access exceptions → Debug
+
+If a Repository encounters an unrecoverable exception, it should let it propagate to the calling Service or Orchestrator rather than logging Error itself. This avoids duplicate log entries across layers.
+
+### Service Layer
+
+**Primary levels:** Debug **Occasionally:** Trace (for granular internals)
+
+Services contain business logic and validation. Most of their logging is Debug-level diagnostic detail.
+
+- Validation steps and outcomes → Debug
+- Branching logic and decision points → Debug
+- External API calls and retries → Debug
+- Handled exceptions → Debug
+
+Services should **not** log at Information or above when called by an Orchestrator — the Orchestrator owns the workflow summary. The exception: when a Service is the topmost layer (no Orchestrator above it), it acts as the workflow boundary and should log at Information the same way an Orchestrator would. If a Service catches an exception it cannot recover from, it may log at Debug for diagnostic context before re-throwing — but should leave the Error-level entry to the Orchestrator at the workflow boundary (see _Single Responsibility for Exception Logging_ in Section 4).
+
+### Orchestrator Layer
+
+**Primary levels:** Information, Warning, Error, Critical **Occasionally:** Debug (for complex branching decisions within the Orchestrator itself)
+
+Orchestrators own the narrative of the workflow. Their logs should read like a high-level story of what happened. Every Orchestrator workflow should log at least one Information entry at start and one at completion. This creates paired bookends that make it easy to detect incomplete workflows and measure duration.
+
+- Workflow start → Information
+- Workflow completion (success or expected failure) → Information
+- Unexpected recoverable conditions → Warning
+- Operation-level failures → Error
+- System-level failures → Critical
+
+Orchestrators should **prefer** Information and above. If an Orchestrator needs Debug logging for its own internal logic, that is acceptable, but it should be the exception rather than the norm.
+
+### Loops and High-Volume Paths
+
+Loops are the most common source of log noise. Guard them carefully.
+
+- Per-item detail inside a loop → Trace
+- Per-batch summary after a loop completes → Debug
+- Aggregate result of the entire operation → Information (Orchestrator only)
+- Do **not** log Warning or Error inside a loop for routine per-item outcomes. The exception: if each item represents an independent operation and an item fails irrecoverably, that item's failure is an Error by the same blast-radius rule that applies outside loops.
+
+### Partial Failures in Batch Operations
+
+When processing a collection where some items succeed and others fail:
+
+- **Per-item failures** inside the loop → Debug. Each individual failure is a handled outcome, not an unexpected condition.
+- **Aggregate summary** after the loop → Information at the Orchestrator level (e.g., `"Processed 42 of 50 items for batch {BatchId}, 8 failed"`).
+- **Warning** only if the failure rate or pattern is abnormal — for example, more than a configurable threshold of items failed, suggesting a systemic issue rather than individual bad data.
+
+Do not log each per-item failure at Warning. A batch of 50 items producing 8 Warning entries creates noise and buries genuinely unexpected conditions.
+
+### Special Contexts
+
+Some components fall outside the Entity/Service/Repository/Orchestrator model. Map them to the closest equivalent.
+
+- **Background jobs and scheduled tasks** behave as Orchestrators. Log workflow start, completion, and failures at the same levels an Orchestrator would.
+- **Application startup and shutdown.** Successful startup and graceful shutdown are Information. A failure that prevents the application from starting is Critical.
+- **Authentication and authorization failures.** A denied request is an expected business outcome, not an unexpected condition. Log at Debug or Information depending on whether the event is useful in production logs. Never include tokens, credentials, or secrets in the log entry.
+- **Poison messages and dead-letter scenarios.** A message that repeatedly fails processing and is moved to a dead-letter queue is an Error — the operation failed for that message. The system continuing to process other messages does not downgrade the severity.
+
+---
+
+## 4. Exception Handling Rules
+
+### Unhandled Exceptions
+
+Log at **Error** or **Critical** based on blast radius:
+
+- **Error** — a single request, workflow, or entity failed. The application continues serving other traffic.
+- **Critical** — the application cannot continue serving traffic, startup failed, or data integrity is at risk.
+
+```csharp
+catch (Exception ex)
+{
+    _logger.LogError(ex, "Failed to process order {OrderId}", orderId);
+    throw;
+}
+```
+
+Always include:
+
+- The exception object (first parameter)
+- Contextual identifiers via structured message templates
+
+### Handled Exceptions (Graceful Recovery)
+
+Log at **Debug** or **Trace**. These are not production-visible under normal configuration.
+
+```csharp
+try
+{
+    await _apiClient.SendAsync(request);
+}
+catch (TimeoutException ex)
+{
+    _logger.LogDebug(ex, "External API timed out for {OrderId}, retrying", orderId);
+    return await RetryAsync(request);
+}
+```
+
+### Transient Failures with Exhausted Retries
+
+Log at **Warning** — the system recovered, but the condition is noteworthy.
+
+```csharp
+catch (TimeoutException ex) when (attempt >= maxRetries)
+{
+    _logger.LogWarning(ex,
+        "External API failed after {MaxRetries} attempts for {OrderId}, proceeding with fallback",
+        maxRetries, orderId);
+    return Fallback();
+}
+```
+
+### Business Rule Violations
+
+Log at **Debug**. A business rule returning a failure is expected behavior.
+
+```csharp
+if (!order.IsEligibleForDiscount)
+{
+    _logger.LogDebug("Order {OrderId} is not eligible for discount", order.Id);
+    return Result.Failure("Not eligible");
+}
+```
+
+### Single Responsibility for Exception Logging
+
+An exception should be logged at Error or Critical by exactly one layer — the layer that owns the workflow boundary. This prevents the classic "triple log" problem where a Repository, Service, and Orchestrator all log the same failure.
+
+The rule: **Only the layer that owns the workflow boundary logs the final Error. Lower layers may log Debug-level detail but should not log Error unless they are the topmost layer handling the exception.**
+
+In practice:
+
+- A **Repository** catches a transient database exception and retries → log each attempt at Trace, log exhaustion at Debug. If it cannot recover, let the exception propagate. Do not log Error.
+- A **Service** catches an exception it cannot handle → it _may_ log at Debug for diagnostic context, then re-throw. Do not log Error unless the Service is the topmost handler.
+- The **Orchestrator** catches the exception at the workflow boundary → log at Error with full context and exception details. This is the single authoritative Error entry.
+
+---
+
+## 5. Structured Logging Best Practices
+
+### Use Message Templates, Not String Interpolation
+
+```csharp
+// Correct — structured, searchable in Splunk
+_logger.LogInformation("Order {OrderId} processed in {ElapsedMs}ms", orderId, elapsed);
+
+// Incorrect — loses structure
+_logger.LogInformation($"Order {orderId} processed in {elapsed}ms");
+```
+
+### Use Consistent Message Template Conventions
+
+Adopt a predictable verb tense so logs tell a time-ordered story and are easy to search.
+
+- **Present tense** for in-progress actions: `"Processing order {OrderId}"`
+- **Past tense** for completions and outcomes: `"Completed order {OrderId}"`, `"Validation failed for entity {EntityId}"`
+
+This gives logs a natural rhythm: searching for "Processing order" finds in-flight entries, while "Completed order" finds results.
+
+### Include Contextual Identifiers
+
+Every log entry that participates in a traceable workflow should include at least one identifier that allows correlation. Common examples: `OrderId`, `CustomerId`, `CorrelationId`, `RequestId`.
+
+### Use Scopes for Cross-Cutting Context
+
+```csharp
+using (_logger.BeginScope(new Dictionary<string, object>
+{
+    ["CorrelationId"] = correlationId,
+    ["OrderId"] = orderId
+}))
+{
+    _logger.LogInformation("Starting order workflow");
+    // All logs within this block inherit CorrelationId and OrderId
+}
+```
+
+### Consider Source-Generated Logging for Hot Paths
+
+For high-throughput code paths, the `[LoggerMessage]` source generator avoids boxing and allocation overhead.
+
+```csharp
+public static partial class LogMessages
+{
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Fetching entity {EntityId}")]
+    public static partial void FetchingEntity(this ILogger logger, int entityId);
+}
+```
+
+This is optional and best suited for Repository and loop-heavy code where logging overhead matters.
+
+---
+
+## 6. Layer Examples
+
+### Repository (Trace / Debug)
+
+```csharp
+public async Task<Entity?> GetByIdAsync(int id)
+{
+    _logger.LogTrace("Fetching entity {EntityId}", id);
+
+    var entity = await _dbContext.Entities.FindAsync(id);
+
+    _logger.LogDebug("Repository lookup for {EntityId}: {Found}", id, entity is not null);
+
+    return entity;
+}
+```
+
+### Service (Debug)
+
+```csharp
+public async Task<ValidationResult> ValidateAsync(Entity entity)
+{
+    _logger.LogDebug("Validating entity {EntityId}", entity.Id);
+
+    if (!IsValid(entity))
+    {
+        _logger.LogDebug("Validation failed for entity {EntityId}", entity.Id);
+        return ValidationResult.Failure();
+    }
+
+    _logger.LogDebug("Validation passed for entity {EntityId}", entity.Id);
+    return ValidationResult.Success();
+}
+```
+
+### Orchestrator (Information)
+
+```csharp
+public async Task<WorkflowResult> ExecuteWorkflowAsync(int orderId)
+{
+    _logger.LogInformation("Starting workflow for order {OrderId}", orderId);
+
+    var validation = await _validationService.ValidateAsync(order);
+    if (!validation.IsSuccess)
+    {
+        _logger.LogInformation(
+            "Workflow ended early for order {OrderId}: validation did not pass", orderId);
+        return WorkflowResult.Failure("Validation failed");
+    }
+
+    var result = await _processingService.ProcessAsync(order);
+
+    _logger.LogInformation("Completed workflow for order {OrderId}", orderId);
+    return result;
+}
+```
+
+> Note: The validation failure above is logged at Information, not Warning, because a failed validation is an expected business outcome — not an unexpected condition.
+
+---
+
+## 7. Anti-Patterns
+
+- **Sensitive data in logs.** Never log passwords, tokens, PII, connection strings, or secrets.
+- **Information+ inside loops.** Routine per-item logs must be Trace or Debug. Error is acceptable only for irrecoverable independent item failures.
+- **Validation failures as Warning.** Validation is expected logic; use Debug.
+- **Handled exceptions as Error.** If the code recovered, it is Debug.
+- **Duplicate logs across layers.** Let the exception propagate to the layer responsible for logging it. Do not log the same failure in both the Service and the Orchestrator.
+- **Unstructured string interpolation.** Always use message templates for searchability.
+- **Logging without context.** Every log should include at least one identifier relevant to the operation.
+- **High-cardinality or free-form structured properties.** Avoid logging raw payloads, user agent strings, full URLs, or serialized objects as structured template parameters. These explode index cardinality in log aggregation systems and degrade search performance. Log a concise identifier or summary instead.
+
+### Before and After
+
+```csharp
+// ❌ Bad — handled exception logged at Error, string interpolation, no context
+try
+{
+    await _paymentGateway.ChargeAsync(amount);
+}
+catch (TimeoutException ex)
+{
+    _logger.LogError($"Payment failed: {ex.Message}");
+    return await FallbackChargeAsync(amount);
+}
+```
+
+```csharp
+// ✅ Good — handled exception at Debug, message template, contextual identifiers
+try
+{
+    await _paymentGateway.ChargeAsync(amount);
+}
+catch (TimeoutException ex)
+{
+    _logger.LogDebug(ex, "Payment gateway timed out for order {OrderId}, using fallback", orderId);
+    return await FallbackChargeAsync(amount);
+}
+```
+
+What changed: the level dropped from Error to Debug (the code recovered), string interpolation became a message template, the exception object is passed as a first-class parameter, and `OrderId` provides searchable context.
+
+---
+
+## 8. Frequently Asked Questions
+
+**Should Orchestrators log every branch or only major milestones?** Only major milestones. Log workflow start, completion, and outcomes that change the workflow's path (e.g., early exit due to validation failure). Internal branching logic within the Orchestrator can be Debug if needed, but most branches do not warrant a log entry.
+
+**Should Services log every external call or only failures?** Log the start of an external call at Debug only if the call is slow or unreliable enough that visibility matters during local debugging. Successful calls that complete quickly do not need their own log entry — the Orchestrator's workflow summary provides sufficient evidence that the call succeeded.
+
+**Should Repository logs include SQL text, parameters, and execution time?** SQL text and parameters → Trace. Execution time → Trace, and useful for identifying slow queries during targeted troubleshooting. Do not log these at Debug or above — EF Core and other ORMs already emit their own diagnostics at lower levels.
+
+**Should we log method entry and exit?** Only for non-trivial methods where the entry/exit context aids debugging — such as methods with complex branching, external calls, or long-running operations. Logging entry/exit for simple getters, mappers, or pass-through methods creates noise without value. Use Debug for entry/exit in Services and Trace in Repositories.
+
+---
+
+## 9. Decision Flow
+
+When writing a log statement, ask in order:
+
+1. **Is the application or system itself in jeopardy?** → Critical
+2. **Did the current operation fail and cannot recover?** → Error
+3. **Did something unexpected happen, but the system continued?** → Warning
+4. **Am I in an Orchestrator (or equivalent) summarizing a workflow milestone?** → Information
+5. **Am I capturing a decision, outcome, or diagnostic detail in a Service?** → Debug
+6. **Am I logging low-level or per-item data in a Repository or loop?** → Trace
+
+If the answer to more than one question is yes, the _first_ match wins.
+
+---
+
+## 10. Quick Reference
+
+|Concern|Level|
+|---|---|
+|Repository operations|Trace / Debug|
+|Service logic and validation|Debug|
+|Orchestrator workflow milestones|Information|
+|Loop iterations|Trace|
+|Batch summaries|Debug|
+|Aggregate operation results|Information (Orchestrator)|
+|Handled exceptions|Debug / Trace|
+|Exhausted retries with fallback|Warning|
+|Unrecoverable operation failure|Error|
+|System-level or app-level failure|Critical|
+|Business rule violations|Debug|
