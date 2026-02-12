@@ -2,6 +2,8 @@
 name: csharp-logging-levels
 description: Apply standardized logging level guidance when writing or reviewing C# code that uses Microsoft.Extensions.Logging. Use when generating ILogger calls, choosing between LogTrace/LogDebug/LogInformation/LogWarning/LogError/LogCritical, writing exception handling with logging, creating Repository/Service/Orchestrator classes, or reviewing log levels in existing code. Ensures consistent log level selection across layers.
 ---
+---
+
 
 # ILogger Logging Level Guidance
 
@@ -9,12 +11,13 @@ Apply these rules when writing `ILogger` calls in C# code using `Microsoft.Exten
 
 ## Level Selection by Layer
 
-| Layer | Primary Levels | Notes |
-|---|---|---|
-| Repository | Trace, Debug | Never log Information+. Let unrecoverable exceptions propagate. |
-| Service | Debug | No Information+ when called by an Orchestrator. If topmost layer, act as Orchestrator. |
-| Orchestrator | Information, Warning, Error, Critical | Log workflow start and completion at Information. Owns the narrative. |
-| Loops | Trace (per-item), Debug (batch summary) | Error only for irrecoverable independent item failures. |
+| Layer        | Primary Levels                          | Notes                                                                                                                                   |
+| ------------ | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository   | Trace, Debug                            | Never log Information+. Let unrecoverable exceptions propagate.                                                                         |
+| Service      | Debug                                   | No Information+ when called by an Orchestrator. If topmost layer, act as Orchestrator.                                                  |
+| Orchestrator | Information, Warning, Error, Critical   | Every Information entry must be a milestone. Log workflow bookends at Information.                                                      |
+| Loops        | Trace (per-item), Debug (batch summary) | Progress checkpoints at Information for long-running batches (e.g., every 10%). Error only for irrecoverable independent item failures. |
+|              |                                         |                                                                                                                                         |
 
 ## Decision Flow
 
@@ -23,7 +26,7 @@ When writing a log statement, apply the first matching rule:
 1. Application/system in jeopardy → **Critical**
 2. Current operation failed, cannot recover → **Error**
 3. Unexpected condition, system continued → **Warning**
-4. Orchestrator summarizing a workflow milestone → **Information**
+4. Orchestrator summarizing a milestone (workflow bookend, state transition, integration completion, progress checkpoint, aggregate result, threshold crossing) → **Information**
 5. Service-level decision, outcome, or diagnostic → **Debug**
 6. Repository or loop per-item detail → **Trace**
 

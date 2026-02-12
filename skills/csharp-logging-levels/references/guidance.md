@@ -65,14 +65,18 @@ Use for:
 
 ### Information (LogLevel 2) — Normal Application Flow Summary
 
-High-level milestones that tell the story of what the application _did_. These are the logs a developer reads first when investigating production behavior.
+High-level milestones that tell the story of what the application _did_. These are the logs a developer reads first when investigating production behavior. Every Information entry should represent a **milestone** — a discrete, meaningful event that a developer would want to see when reconstructing what happened in production.
 
-Use for:
+Milestone categories:
 
-- Workflow or operation start and completion
-- Key business events and state changes
-- Orchestrator-level summaries
-- Aggregate results of batch operations (e.g., "Processed 42 of 50 items successfully")
+- **Workflow bookends** — start and completion of an orchestrated operation (e.g., `"Starting workflow for order {OrderId}"`, `"Completed workflow for order {OrderId}"`)
+- **State transitions** — a business entity moving to a new lifecycle state (e.g., `"Order {OrderId} transitioned to Shipped"`, `"Claim {ClaimId} approved"`)
+- **Integration completions** — a significant external system interaction completed (e.g., `"Payment authorized for order {OrderId}"`, `"Email notification sent for {CustomerId}"`)
+- **Progress checkpoints** — periodic markers during long-running operations (e.g., `"Batch {BatchId} progress: 500 of 1000 records processed (50%)"`)
+- **Aggregate results** — final summary of a batch or collection operation (e.g., `"Processed 1000 records for batch {BatchId}, 8 failed"`)
+- **Threshold crossings** — a system-level condition changing state (e.g., `"Circuit breaker opened for PaymentGateway"`, `"Queue depth exceeded {Threshold}"`)
+
+If a log entry does not fit one of these categories, it likely belongs at Debug or Trace.
 
 ### Warning (LogLevel 3) — Unexpected but Recoverable
 
@@ -154,10 +158,10 @@ Services should **not** log at Information or above when called by an Orchestrat
 
 **Primary levels:** Information, Warning, Error, Critical **Occasionally:** Debug (for complex branching decisions within the Orchestrator itself)
 
-Orchestrators own the narrative of the workflow. Their logs should read like a high-level story of what happened. Every Orchestrator workflow should log at least one Information entry at start and one at completion. This creates paired bookends that make it easy to detect incomplete workflows and measure duration.
+Orchestrators own the narrative of the workflow. Their logs should read like a high-level story of what happened. Every Orchestrator workflow should log at least one Information entry at start and one at completion. This creates paired bookends that make it easy to detect incomplete workflows and measure duration. All Information entries should represent milestones (see milestone categories in Section 2).
 
-- Workflow start → Information
-- Workflow completion (success or expected failure) → Information
+- Workflow bookends (start and completion) → Information
+- State transitions and integration completions → Information
 - Unexpected recoverable conditions → Warning
 - Operation-level failures → Error
 - System-level failures → Critical
@@ -182,6 +186,48 @@ When processing a collection where some items succeed and others fail:
 - **Warning** only if the failure rate or pattern is abnormal — for example, more than a configurable threshold of items failed, suggesting a systemic issue rather than individual bad data.
 
 Do not log each per-item failure at Warning. A batch of 50 items producing 8 Warning entries creates noise and buries genuinely unexpected conditions.
+
+### Progress Milestones for Long-Running Operations
+
+For batch operations that process large collections, log progress checkpoints at Information on a fixed interval rather than per-item. This gives production visibility into long-running operations without generating a log entry for every record.
+
+- **Per-item updates** → Trace or Debug
+- **Progress checkpoints** at a fixed interval (e.g., every 10% or every N items) → Information
+- **Final aggregate result** → Information
+
+```csharp
+public async Task<BatchResult> ProcessBatchAsync(IReadOnlyList<Record> records, string batchId)
+{
+    _logger.LogInformation("Starting batch {BatchId}, {TotalCount} records", batchId, records.Count);
+
+    int successCount = 0;
+    int failCount = 0;
+    int checkpoint = Math.Max(records.Count / 10, 1);
+
+    for (int i = 0; i < records.Count; i++)
+    {
+        _logger.LogTrace("Processing record {RecordId} in batch {BatchId}", records[i].Id, batchId);
+
+        var success = await ProcessRecordAsync(records[i]);
+        if (success) successCount++; else failCount++;
+
+        if ((i + 1) % checkpoint == 0)
+        {
+            _logger.LogInformation(
+                "Batch {BatchId} progress: {Processed} of {Total} records processed ({Percent}%)",
+                batchId, i + 1, records.Count, (i + 1) * 100 / records.Count);
+        }
+    }
+
+    _logger.LogInformation(
+        "Completed batch {BatchId}: {SuccessCount} succeeded, {FailCount} failed of {TotalCount}",
+        batchId, successCount, failCount, records.Count);
+
+    return new BatchResult(successCount, failCount);
+}
+```
+
+For small collections (under ~100 items), progress checkpoints are unnecessary — the start and completion bookends are sufficient.
 
 ### Special Contexts
 
@@ -433,6 +479,8 @@ What changed: the level dropped from Error to Debug (the code recovered), string
 
 ## 8. Frequently Asked Questions
 
+**What counts as a milestone?** A milestone is a discrete, meaningful event worth seeing in production logs. Ask: "If I were investigating this workflow in Splunk, would I want to see this entry?" If the answer is yes, it is a milestone. If the entry only helps during local debugging, it belongs at Debug. The milestone categories in Section 2 (workflow bookends, state transitions, integration completions, progress checkpoints, aggregate results, threshold crossings) provide a concrete checklist.
+
 **Should Orchestrators log every branch or only major milestones?** Only major milestones. Log workflow start, completion, and outcomes that change the workflow's path (e.g., early exit due to validation failure). Internal branching logic within the Orchestrator can be Debug if needed, but most branches do not warrant a log entry.
 
 **Should Services log every external call or only failures?** Log the start of an external call at Debug only if the call is slow or unreliable enough that visibility matters during local debugging. Successful calls that complete quickly do not need their own log entry — the Orchestrator's workflow summary provides sufficient evidence that the call succeeded.
@@ -450,7 +498,7 @@ When writing a log statement, ask in order:
 1. **Is the application or system itself in jeopardy?** → Critical
 2. **Did the current operation fail and cannot recover?** → Error
 3. **Did something unexpected happen, but the system continued?** → Warning
-4. **Am I in an Orchestrator (or equivalent) summarizing a workflow milestone?** → Information
+4. **Am I in an Orchestrator (or equivalent) logging a milestone?** (workflow bookend, state transition, integration completion, progress checkpoint, aggregate result, threshold crossing) → Information
 5. **Am I capturing a decision, outcome, or diagnostic detail in a Service?** → Debug
 6. **Am I logging low-level or per-item data in a Repository or loop?** → Trace
 
@@ -464,12 +512,15 @@ If the answer to more than one question is yes, the _first_ match wins.
 |---|---|
 |Repository operations|Trace / Debug|
 |Service logic and validation|Debug|
-|Orchestrator workflow milestones|Information|
+|Orchestrator workflow bookends|Information|
+|State transitions and integration completions|Information|
+|Progress checkpoints (long-running batches)|Information|
+|Aggregate operation results|Information (Orchestrator)|
 |Loop iterations|Trace|
 |Batch summaries|Debug|
-|Aggregate operation results|Information (Orchestrator)|
 |Handled exceptions|Debug / Trace|
 |Exhausted retries with fallback|Warning|
+|Threshold crossings (circuit breakers, queue depth)|Warning or Information|
 |Unrecoverable operation failure|Error|
 |System-level or app-level failure|Critical|
 |Business rule violations|Debug|
