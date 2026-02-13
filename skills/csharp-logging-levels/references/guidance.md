@@ -23,8 +23,8 @@ Best practices for developers using `Microsoft.Extensions.Logging`. Optimized fo
 ### 1.3 Exception Philosophy
 
 - Exceptions are the **most important log entries**.
-- **Unhandled exceptions** → Error, or Critical if they affect system stability or data integrity.
-- **Handled exceptions** → Debug or Trace.
+- **Catch and re-throw (`throw;`)** → Error. The catching layer has the best context about the failure. Always include the exception object as the first parameter.
+- **Catch and recover** → Debug or Trace. The code handled it gracefully.
 - **Business rule failures** → Debug (expected behavior, not exceptional).
 - **Transient failures with exhausted retries** → Warning (the only case where a handled failure escalates above Debug).
 
@@ -58,7 +58,7 @@ Use for:
 - Method entry/exit in non-trivial flows
 - Branching decisions and conditional logic
 - Cache hits/misses
-- Handled exceptions that are gracefully recovered
+- Handled exceptions where the code recovers (no `throw;`)
 - Validation outcomes (pass or fail)
 - Detailed service-level operations
 - Per-batch summaries when processing collections
@@ -129,7 +129,7 @@ The Entity → Service → Repository pattern with an Orchestrator coordinating 
 
 ### Repository Layer
 
-**Primary levels:** Trace, Debug **Rarely if ever:** Information or above
+**Primary levels:** Trace, Debug **Occasionally:** Error (only in catch blocks that re-throw)
 
 Repositories sit at the bottom of the stack. Their logs capture data-access mechanics, not business meaning.
 
@@ -139,20 +139,20 @@ Repositories sit at the bottom of the stack. Their logs capture data-access mech
 - Retry exhaustion with recovery → Debug
 - Handled data-access exceptions → Debug
 
-If a Repository encounters an unrecoverable exception, it should let it propagate to the calling Service or Orchestrator rather than logging Error itself. This avoids duplicate log entries across layers.
+If a Repository catches an unrecoverable exception and re-throws it, it should log at Error with the exception object and contextual identifiers before re-throwing. If the Repository does not catch the exception at all, it propagates naturally and a higher layer will log it.
 
 ### Service Layer
 
-**Primary levels:** Debug **Occasionally:** Trace (for granular internals)
+**Primary levels:** Debug **Occasionally:** Trace (for granular internals), Error (in catch blocks that re-throw)
 
 Services contain business logic and validation. Most of their logging is Debug-level diagnostic detail.
 
 - Validation steps and outcomes → Debug
 - Branching logic and decision points → Debug
 - External API calls and retries → Debug
-- Handled exceptions → Debug
+- Handled exceptions (catch and recover) → Debug
 
-Services should **not** log at Information or above when called by an Orchestrator — the Orchestrator owns the workflow summary. The exception: when a Service is the topmost layer (no Orchestrator above it), it acts as the workflow boundary and should log at Information the same way an Orchestrator would. If a Service catches an exception it cannot recover from, it may log at Debug for diagnostic context before re-throwing — but should leave the Error-level entry to the Orchestrator at the workflow boundary (see _Single Responsibility for Exception Logging_ in Section 4).
+Services should **not** log at Information or above when called by an Orchestrator — the Orchestrator owns the workflow summary. The exception: when a Service is the topmost layer (no Orchestrator above it), it acts as the workflow boundary and should log at Information the same way an Orchestrator would. If a Service catches an exception it cannot recover from and re-throws it, it should log at Error with the exception object and contextual identifiers. The Single Responsibility rule (see Section 4) prevents higher layers from duplicating that Error entry.
 
 ### Orchestrator Layer
 
@@ -242,12 +242,9 @@ Some components fall outside the Entity/Service/Repository/Orchestrator model. M
 
 ## 4. Exception Handling Rules
 
-### Unhandled Exceptions
+### Catch and Re-Throw (`throw;`)
 
-Log at **Error** or **Critical** based on blast radius:
-
-- **Error** — a single request, workflow, or entity failed. The application continues serving other traffic.
-- **Critical** — the application cannot continue serving traffic, startup failed, or data integrity is at risk.
+When a catch block exists to add context before propagating the exception, log at **Error** (or **Critical** if system stability or data integrity is at risk). The catching layer has the best context about the failure — this is the authoritative Error entry.
 
 ```csharp
 catch (Exception ex)
@@ -259,12 +256,12 @@ catch (Exception ex)
 
 Always include:
 
-- The exception object (first parameter)
+- The exception object as the first parameter
 - Contextual identifiers via structured message templates
 
-### Handled Exceptions (Graceful Recovery)
+### Catch and Recover
 
-Log at **Debug** or **Trace**. These are not production-visible under normal configuration.
+When the code handles the exception and continues without re-throwing, log at **Debug** or **Trace**. These are not production-visible under normal configuration. The code recovered — this is not an Error.
 
 ```csharp
 try
@@ -306,15 +303,15 @@ if (!order.IsEligibleForDiscount)
 
 ### Single Responsibility for Exception Logging
 
-An exception should be logged at Error or Critical by exactly one layer — the layer that owns the workflow boundary. This prevents the classic "triple log" problem where a Repository, Service, and Orchestrator all log the same failure.
+An exception should be logged at Error by exactly one layer — the layer that catches and re-throws it. This prevents the classic "triple log" problem where a Repository, Service, and Orchestrator all log the same failure.
 
-The rule: **Only the layer that owns the workflow boundary logs the final Error. Lower layers may log Debug-level detail but should not log Error unless they are the topmost layer handling the exception.**
+The rule: **The layer that catches an exception and re-throws it owns the Error entry. If a higher layer also catches the same exception, it should not log Error again.**
 
 In practice:
 
-- A **Repository** catches a transient database exception and retries → log each attempt at Trace, log exhaustion at Debug. If it cannot recover, let the exception propagate. Do not log Error.
-- A **Service** catches an exception it cannot handle → it _may_ log at Debug for diagnostic context, then re-throw. Do not log Error unless the Service is the topmost handler.
-- The **Orchestrator** catches the exception at the workflow boundary → log at Error with full context and exception details. This is the single authoritative Error entry.
+- A **Repository** catches a transient database exception and retries → log each attempt at Trace, log exhaustion at Debug. If it catches an unrecoverable exception and re-throws → log at Error with context before `throw;`.
+- A **Service** catches an exception it cannot handle and re-throws → log at Error with context before `throw;`.
+- If both a Service and an Orchestrator have catch blocks for the same exception, only the **first** layer to catch and re-throw logs Error. The higher layer should either not catch it, or catch it without duplicating the Error entry.
 
 ---
 
@@ -439,8 +436,9 @@ public async Task<WorkflowResult> ExecuteWorkflowAsync(int orderId)
 - **Sensitive data in logs.** Never log passwords, tokens, PII, connection strings, or secrets.
 - **Information+ inside loops.** Routine per-item logs must be Trace or Debug. Error is acceptable only for irrecoverable independent item failures.
 - **Validation failures as Warning.** Validation is expected logic; use Debug.
-- **Handled exceptions as Error.** If the code recovered, it is Debug.
-- **Duplicate logs across layers.** Let the exception propagate to the layer responsible for logging it. Do not log the same failure in both the Service and the Orchestrator.
+- **Handled exceptions as Error.** If the code caught the exception and recovered (no `throw;`), it is Debug — not Error.
+- **Duplicate Error entries across layers.** An exception should be logged at Error by exactly one layer. If a lower layer already logged Error before re-throwing, higher layers should not log Error for the same exception again.
+- **Catch-and-rethrow at Debug.** If a catch block re-throws with `throw;`, it must log at Error — not Debug. The catching layer has the best context about the failure.
 - **Unstructured string interpolation.** Always use message templates for searchability.
 - **Logging without context.** Every log should include at least one identifier relevant to the operation.
 - **High-cardinality or free-form structured properties.** Avoid logging raw payloads, user agent strings, full URLs, or serialized objects as structured template parameters. These explode index cardinality in log aggregation systems and degrade search performance. Log a concise identifier or summary instead.
@@ -448,7 +446,7 @@ public async Task<WorkflowResult> ExecuteWorkflowAsync(int orderId)
 ### Before and After
 
 ```csharp
-// ❌ Bad — handled exception logged at Error, string interpolation, no context
+// ❌ Bad — catch-and-recover logged at Error, string interpolation, no context
 try
 {
     await _paymentGateway.ChargeAsync(amount);
@@ -461,7 +459,7 @@ catch (TimeoutException ex)
 ```
 
 ```csharp
-// ✅ Good — handled exception at Debug, message template, contextual identifiers
+// ✅ Good — catch-and-recover at Debug, message template, contextual identifiers
 try
 {
     await _paymentGateway.ChargeAsync(amount);
@@ -496,7 +494,7 @@ What changed: the level dropped from Error to Debug (the code recovered), string
 When writing a log statement, ask in order:
 
 1. **Is the application or system itself in jeopardy?** → Critical
-2. **Did the current operation fail and cannot recover?** → Error
+2. **Is this a catch block that re-throws (`throw;`)?** → Error (include the exception object)
 3. **Did something unexpected happen, but the system continued?** → Warning
 4. **Am I in an Orchestrator (or equivalent) logging a milestone?** (workflow bookend, state transition, integration completion, progress checkpoint, aggregate result, threshold crossing) → Information
 5. **Am I capturing a decision, outcome, or diagnostic detail in a Service?** → Debug
@@ -518,9 +516,9 @@ If the answer to more than one question is yes, the _first_ match wins.
 |Aggregate operation results|Information (Orchestrator)|
 |Loop iterations|Trace|
 |Batch summaries|Debug|
-|Handled exceptions|Debug / Trace|
+|Catch and re-throw (`throw;`)|Error|
+|Catch and recover|Debug / Trace|
 |Exhausted retries with fallback|Warning|
 |Threshold crossings (circuit breakers, queue depth)|Warning or Information|
-|Unrecoverable operation failure|Error|
 |System-level or app-level failure|Critical|
 |Business rule violations|Debug|

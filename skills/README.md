@@ -21,8 +21,9 @@ The [Agent Skills](https://agentskills.io/) format was originally developed by 
 ## Online Resources
 
 - [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills)
-- [atlassian-skills/langping](https://github.com/langpingxue/atlassian-skills/) - local Skills with Python scripts to interact with API endpoints. [Introducing Atlassian Skills: Extending AI agent with Atlassian Integration](https://medium.com/@xuelangping/introducing-atlassian-skills-extending-ai-agent-with-atlassian-integration-fa19f6056df7) provides more background.
+- [atlassian-skills/langping](https://github.com/langpingxue/atlassian-skills/) - local Skills with Python scripts to interact with API endpoints. The  [author's article](https://medium.com/@xuelangping/introducing-atlassian-skills-extending-ai-agent-with-atlassian-integration-fa19f6056df7) provides background information about the skills.
 - [claude-skills/alirezarezvani](https://github.com/alirezarezvani/claude-skills) - library of skills organized by persona
+- [superpowers/cblecker](https://github.com/cblecker/superpowers)
 -  [anthropics skills](https://github.com/anthropics/skills)
 - [github/awesome-copilot](https://github.com/github/awesome-copilot)
 
