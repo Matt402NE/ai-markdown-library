@@ -1,6 +1,6 @@
 ---
-name: creating-git-branches
-description: 'Create a new local Git branch following team naming conventions. Use when asked to "create a branch", "start a new feature", "start work on", "branch for", or any task requiring a new local branch off main. Handles pre-flight checks, name generation, and user approval before execution. Does NOT handle commits, merges, or post-merge cleanup.'
+name: git-creating-branches
+description: Create a new local Git branch following team naming conventions. Use when asked to "create a branch", "start a new feature", "start work on", "branch for", or any task requiring a new local branch off main. Handles pre-flight checks, name generation, and user approval before execution. Does NOT handle commits, merges, or post-merge cleanup.
 ---
 
 # Creating Git Branches
