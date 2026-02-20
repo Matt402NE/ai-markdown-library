@@ -5,10 +5,12 @@ description: "Tells Copilot to follow the csharp-project-scaffolding skill when 
 
 ## Context
 
-Any `.csproj` file under `src/` must be scaffolded according to the conventions in `.github/skills/csharp-project-scaffolding/SKILL.md`. That skill is the single source of truth for project structure, NuGet packages, and solution integration. Do not invent structure — read and follow the skill.
+Any `.csproj` file under `src/` must be scaffolded according to the conventions in [.github/skills/csharp-project-scaffolding/SKILL.md](../skills/csharp-project-scaffolding/SKILL.md). That skill is the single source of truth for project structure, NuGet packages, and solution integration. Do not invent structure — read and follow the skill.
+
+> For full conventions and rationale, see [csharp-project-scaffolding/SKILL.md](../skills/csharp-project-scaffolding/SKILL.md).
 
 ## Do
-- Read `.github/skills/csharp-project-scaffolding/SKILL.md` before generating anything.
+- Read `csharp-project-scaffolding/SKILL.md` before generating anything.
 - Ask the four pre-flight questions from the skill before creating any files.
 - Run `dotnet build --configuration Release` after scaffolding; fix all errors and warnings.
 
