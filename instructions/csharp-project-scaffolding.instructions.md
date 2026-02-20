@@ -1,28 +1,17 @@
-# C# Project Scaffolding Instructions
+---
+applyTo: "src/**/*.csproj"
+description: "Tells Copilot to follow the csharp-project-scaffolding skill when creating or modifying .csproj files under src/"
+---
 
-When asked to create, scaffold, or set up a new C# project — including class libraries, console applications, test projects, or any other .NET project type — you must read and follow the skill file located at:
+## Context
 
-```
-skills/csharp-project-scaffolding/SKILL.md
-```
+Any `.csproj` file under `src/` must be scaffolded according to the conventions in `.github/skills/csharp-project-scaffolding/SKILL.md`. That skill is the single source of truth for project structure, NuGet packages, and solution integration. Do not invent structure — read and follow the skill.
 
-Also read the supporting reference and asset files bundled with the skill:
+## Do
+- Read `.github/skills/csharp-project-scaffolding/SKILL.md` before generating anything.
+- Ask the four pre-flight questions from the skill before creating any files.
+- Run `dotnet build --configuration Release` after scaffolding; fix all errors and warnings.
 
-```
-skills/csharp-project-scaffolding/references/nuget-packages.md
-skills/csharp-project-scaffolding/assets/Program.cs
-skills/csharp-project-scaffolding/assets/Worker.cs
-```
-
-## When This Applies
-
-Use this skill for any request that involves:
-
-- Creating a new `.csproj` file
-- Scaffolding a class library, console app, or test project
-- Adding a new project to a Visual Studio solution
-- Setting up NuGet packages for a new project
-
-## Required Behavior
-
-Do not begin scaffolding until you have read `SKILL.md` and completed its pre-flight checklist with the user. The skill defines required pre-flight questions, project structure rules, NuGet packages, and build verification steps that must all be followed.
+## Avoid
+- Avoid creating placeholder files (`Class1.cs`, stub `Program.cs`) — the skill defines exactly what files to generate.
+- Avoid skipping build verification — do not present the project as done until the build is clean.
