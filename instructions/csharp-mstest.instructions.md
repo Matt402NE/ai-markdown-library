@@ -1,5 +1,5 @@
 ---
-applyTo: 'src/**/*.Test.*/**/*.cs'
+applyTo: src/**/*.cs,tests/**/*.cs
 ---
 # C# MSTest Instructions
 
